@@ -1,0 +1,9 @@
+.terraform/
+*.tfstate*
+*.tfplan
+.venv/
+__pycache__/
+.pytest_cache/
+.superpowers/
+*.tfvars
+!*.tfvars.example
