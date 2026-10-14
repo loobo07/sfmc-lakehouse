@@ -1,0 +1,4 @@
+sfmc_connection_name = "sfmc"
+sfmc_secret_arn      = "arn:aws:secretsmanager:us-east-1:111122223333:secret:sfmc-client-AbCdEf"
+soap_instance_url    = "https://YOUR_SUBDOMAIN.soap.marketingcloudapis.com/"
+alert_email          = "you@example.com"
