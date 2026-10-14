@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from sfmc_to_s3tables import ENTITIES, merge_sql, parse_list, to_snake, window
+from sfmc_to_s3tables import ENTITIES, materialize, merge_sql, parse_list, to_snake, window
 
 
 @pytest.mark.parametrize(
@@ -55,6 +55,38 @@ def test_merge_sql_dimensions_update_non_key_columns():
         " WHEN MATCHED THEN UPDATE SET t.name = s.name, t._ingested_at = s._ingested_at"
         " WHEN NOT MATCHED THEN INSERT (id, name, _ingested_at) VALUES (s.id, s.name, s._ingested_at)"
     )
+
+
+def test_merge_sql_events_bound_target_to_window():
+    sql = merge_sql(
+        "open_event", "src", ("send_id", "event_date"), ["send_id", "event_date"], update=False,
+        target_since="2026-10-12T00:00:00.000Z",
+    )
+    assert (
+        " ON t.send_id <=> s.send_id AND t.event_date <=> s.event_date"
+        " AND t.event_date >= TIMESTAMP '2026-10-12T00:00:00.000Z' WHEN NOT MATCHED"
+    ) in sql
+
+
+class FakeFrame:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def persist(self):
+        self.calls.append("persist")
+        return self
+
+    def count(self):
+        self.calls.append("count")
+        return self.rows
+
+
+def test_materialize_caches_before_counting():
+    df = FakeFrame(3)
+    cached, rows = materialize(df)
+    assert (cached, rows) == (df, 3)
+    assert df.calls == ["persist", "count"]
 
 
 def test_parse_list_trims_and_drops_empties():

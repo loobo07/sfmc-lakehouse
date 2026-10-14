@@ -64,9 +64,14 @@ def window(now: datetime, lookback_days: int) -> tuple[str, str]:
     return lower.strftime(fmt), upper.strftime(fmt)
 
 
-def merge_sql(table: str, source_view: str, keys: tuple, columns: list[str], update: bool) -> str:
+def merge_sql(
+    table: str, source_view: str, keys: tuple, columns: list[str], update: bool, target_since: str | None = None
+) -> str:
+    """target_since bounds the target scan to the incremental window's partitions (events only)."""
     target = f"{CATALOG}.sfmc.{table}"
     on = " AND ".join(f"t.{k} <=> s.{k}" for k in keys)
+    if target_since:
+        on += f" AND t.event_date >= TIMESTAMP '{target_since}'"
     cols = ", ".join(columns)
     vals = ", ".join(f"s.{c}" for c in columns)
     sql = f"MERGE INTO {target} t USING {source_view} s ON {on}"
@@ -78,6 +83,12 @@ def merge_sql(table: str, source_view: str, keys: tuple, columns: list[str], upd
 
 def parse_list(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
+
+
+def materialize(df):
+    """Cache before counting so the connector is read once, not again by the write."""
+    df = df.persist()
+    return df, df.count()
 
 
 # --------------------------------------------------------------------------- Spark
@@ -134,23 +145,29 @@ def load_entity(glue_context, spark, entity: Entity, args: dict, bounds: tuple) 
         )
     df = df.dropDuplicates(list(entity.keys))
 
-    rows = df.count()
-    if rows == 0:
-        return 0
+    df, rows = materialize(df)
+    try:
+        if rows == 0:
+            return 0
 
-    target = f"{CATALOG}.sfmc.{entity.table}"
-    if not spark.catalog.tableExists(target):
-        writer = df.writeTo(target).using("iceberg")
-        if entity.event_date:
-            writer = writer.partitionedBy(F.days("event_date"))
-        writer.create()
+        target = f"{CATALOG}.sfmc.{entity.table}"
+        if not spark.catalog.tableExists(target):
+            writer = df.writeTo(target).using("iceberg")
+            if entity.event_date:
+                writer = writer.partitionedBy(F.days("event_date"))
+            writer.create()
+            return rows
+
+        add_missing_columns(spark, entity.table, df)
+        view = f"src_{entity.table}"
+        df.createOrReplaceTempView(view)
+        since = bounds[0] if entity.event_date else None
+        spark.sql(
+            merge_sql(entity.table, view, entity.keys, df.columns, update=since is None, target_since=since)
+        )
         return rows
-
-    add_missing_columns(spark, entity.table, df)
-    view = f"src_{entity.table}"
-    df.createOrReplaceTempView(view)
-    spark.sql(merge_sql(entity.table, view, entity.keys, df.columns, update=entity.event_date is None))
-    return rows
+    finally:
+        df.unpersist()
 
 
 def main() -> None:

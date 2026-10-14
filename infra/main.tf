@@ -74,12 +74,6 @@ data "aws_iam_policy_document" "glue_assume" {
       type        = "Service"
       identifiers = ["glue.amazonaws.com"]
     }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceAccount"
-      values   = [local.account_id]
-    }
   }
 }
 
@@ -115,9 +109,23 @@ data "aws_iam_policy_document" "glue_job" {
     ]
   }
 
+  # Required to use a Glue SaaS connector; these actions take no resource ARNs.
+  statement {
+    sid = "SfmcConnector"
+    actions = [
+      "glue:ListConnectionTypes",
+      "glue:DescribeConnectionType",
+      "glue:RefreshOAuth2Tokens",
+      "glue:ListEntities",
+      "glue:DescribeEntity",
+    ]
+    resources = ["*"]
+  }
+
+  # Put: Glue writes refreshed OAuth tokens back to the connection's secret.
   statement {
     sid       = "SfmcSecret"
-    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret", "secretsmanager:PutSecretValue"]
     resources = [var.sfmc_secret_arn]
   }
 }

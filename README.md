@@ -52,12 +52,21 @@ After the first apply:
   Athena can query `s3tablescatalog/sfmc-analytics`.
 
 ### 3. First run and backfill
+Start with a one-day run, then check it against the verification steps below. SFMC keeps
+about 6 months of tracking data. The scheduled job is sized for a 2-day window
+(2 × G.1X, 4 connector partitions, 120-minute timeout), so the 180-day backfill needs more
+capacity. Override the sizing for that run and load one entity at a time:
+
 ```sh
-# One-off backfill: SFMC keeps about 6 months of tracking data
-aws glue start-job-run --job-name sfmc-to-s3tables --arguments '{"--LOOKBACK_DAYS":"180"}'
+aws glue start-job-run --job-name sfmc-to-s3tables \
+  --timeout 1440 --worker-type G.1X --number-of-workers 10 \
+  --arguments '{"--ENTITIES":"sent_event","--LOOKBACK_DAYS":"180","--NUM_PARTITIONS":"60"}'
+# Repeat for open_event, click_event, bounce_event, unsub_event, not_sent_event,
+# and then for the dimension tables (send,subscriber,list,email), which are always full reads.
 ```
-After that, the `sfmc-to-s3tables-daily` trigger runs the job daily at 06:00 UTC. Failed and
-timed-out runs send an email through SNS.
+After that, the `sfmc-to-s3tables-daily` trigger runs the job daily at 06:00 UTC
+(`aws glue get-trigger --name sfmc-to-s3tables-daily` should show `ACTIVATED`). Failed
+and timed-out runs send an email through SNS.
 
 ## Verification
 - Load one historical day, then compare `count(*)` per event table against SFMC Tracking/Data
@@ -73,6 +82,12 @@ timed-out runs send an email through SNS.
 - The SOAP field names the connector returns. The merge keys assume `SendID`,
   `SubscriberKey`, `EventDate`, `EventType` and `URL`.
 - The Iceberg REST catalog settings on Glue 5.0 (`--conf` in `infra/main.tf`).
+- The time zone of `EventDate`. SFMC SOAP returns Central Time by default. If the values carry
+  no UTC offset, the window bounds are shifted by about 6 hours. The 2-day lookback absorbs this
+  for daily loads, but day-level count comparisons will be off.
+- The connector `ENTITY_NAME` strings (`SentEvent`, …). The docs only show display names.
+- Whether the connection's secret uses a customer-managed KMS key. If it does, grant the Glue
+  role `kms:Decrypt` on that key.
 
 ## Development
 ```sh
