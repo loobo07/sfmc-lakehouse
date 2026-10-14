@@ -1,0 +1,13 @@
+[project]
+name = "sfmc-lakehouse"
+version = "0.1.0"
+description = "Salesforce Marketing Cloud Engagement data into Amazon S3 Tables via AWS Glue"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["glue"]
