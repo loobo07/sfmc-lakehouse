@@ -2,6 +2,27 @@
 
 Salesforce Marketing Cloud **Engagement** campaign data → **Amazon S3 Tables** (managed Iceberg), in us-east-1.
 
+## Status: parked 2026-10-26
+
+The code is complete and nothing is deployed. To pick it up again, do these in order:
+
+1. Confirm the SFMC product is Engagement. If it's Account Engagement (Pardot) or core
+   Salesforce, use Glue zero-ETL instead of this job.
+2. Get an AWS identity that can create Glue, S3 Tables, S3, IAM, SNS and EventBridge resources.
+   The local `ghd_test` user can't.
+3. Follow [Setup](#setup), review `terraform plan`, then apply.
+4. Work through [Verification](#verification). Timing a full day at production volume decides
+   whether this approach can keep up or you need SFMC exports instead.
+
+Deferred minor review items:
+- Column names aren't quoted in the generated SQL.
+- Nothing detects two source fields that map to the same column name.
+- Rows with an unparseable `event_date` are dropped silently.
+- Dimension upserts rewrite every row on every run.
+- `s3tables:*` is broader than the job needs.
+- The failure alert doesn't fire for STOPPED or ERROR runs.
+- Tables the job creates block `terraform destroy`.
+
 An AWS Glue 5.0 job reads SFMC entities through Glue's native `salesforcemarketingcloud`
 connector and MERGEs them into Iceberg tables in the `sfmc-analytics` table bucket
 (namespace `sfmc`) via the S3 Tables Iceberg REST endpoint. Event tables load an
